@@ -8,15 +8,20 @@ The API was reverse-engineered from the web console (`/fe-next` frontend bundles
 
 Requires **Node.js 24 or newer** and npm.
 
+Install from [npm](https://www.npmjs.com/package/matpool-cli):
+
 ```bash
-git clone https://github.com/Aoblex/matpool-cli.git
-cd matpool-cli
-npm ci
-npm link
+npm install -g matpool-cli
 matpool --help
 ```
 
-Alternatively, run `node bin/matpool.js` from the checkout instead of linking it.
+To update to the latest version:
+
+```bash
+npm install -g matpool-cli@latest
+```
+
+If your npm mirror has not synced the package yet, add `--registry=https://registry.npmjs.org` to the install command.
 
 ## Login
 
@@ -117,13 +122,20 @@ An API base override receives credentials. Do not point it at untrusted servers 
 
 ## Development
 
+Clone the repository to develop or run from source:
+
 ```bash
+git clone https://github.com/Aoblex/matpool-cli.git
+cd matpool-cli
 npm ci
+npm link
 npm run check
 npm test
 npm run test:coverage
 npm pack --dry-run
 ```
+
+Instead of `npm link`, you can run `node bin/matpool.js` directly from the checkout.
 
 Native ESM, ESLint, Node's built-in test runner, no build step. Tests use mocked fetch responses and a local HTTP server; they never access MatPool or rent/release real instances.
 
