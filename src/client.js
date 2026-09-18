@@ -1,4 +1,4 @@
-import { loadConfig, die, yellow } from './config.js';
+import { loadConfig, die, pc } from './config.js';
 
 const BASE_URL = process.env.MATPOOL_API_BASE || 'https://matpool.com/api';
 
@@ -30,8 +30,8 @@ async function request(method, path, { params, body, headers } = {}) {
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  let data;
   const text = await res.text();
+  let data;
   try {
     data = JSON.parse(text);
   } catch {
@@ -56,14 +56,15 @@ export const api = {
 };
 
 const HINTS = {
-  7: 'authentication failed or token expired - run: matpool login',
-  176: 'missing or invalid token - run: matpool login',
+  7: 'authentication failed or token expired',
+  176: 'missing or invalid token',
 };
 
 export function handleError(err) {
   if (err instanceof ApiError) {
-    if (HINTS[err.code]) die(`${err.message}\n${yellow('hint: ' + HINTS[err.code])}`);
-    die(err.message);
+    const hint = HINTS[err.code];
+    const loginHint = `run: ${pc.cyan('matpool login')}`;
+    die(hint ? `${err.message}\n${pc.yellow(`hint: ${hint} - ${loginHint}`)}` : err.message);
   }
   if (err.cause) {
     die(`network error: ${err.cause.message || err.message}`);

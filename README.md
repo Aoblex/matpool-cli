@@ -22,7 +22,7 @@ matpool login --name 13800000000 --password ****
 matpool whoami
 matpool balance
 
-matpool machines            # available machines
+matpool machines            # available machines (table output, --json for raw)
 matpool hardwares           # hardware catalog
 matpool images --search pytorch
 

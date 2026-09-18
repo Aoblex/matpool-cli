@@ -1,39 +1,45 @@
-import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
+import pc from 'picocolors';
 
 const CONFIG_PATH = process.env.MATPOOL_CONFIG
   || join(homedir(), '.config', 'matpool-cli', 'config.json');
 
-const red = (s) => `\x1b[31m${s}\x1b[0m`;
-const green = (s) => `\x1b[32m${s}\x1b[0m`;
-const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
-export { green, yellow };
+// Hot reload: cache is keyed on file mtime, so edits from another process
+// (or another terminal running `matpool login`) are picked up immediately.
+let cache = { mtime: 0, data: {} };
 
 export function loadConfig() {
-  if (!existsSync(CONFIG_PATH)) return {};
   try {
-    return JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
+    const mtime = statSync(CONFIG_PATH).mtimeMs;
+    if (mtime !== cache.mtime) {
+      cache = { mtime, data: JSON.parse(readFileSync(CONFIG_PATH, 'utf8')) };
+    }
   } catch {
-    return {};
+    cache = { mtime: 0, data: {} };
   }
+  return cache.data;
 }
 
 export function saveConfig(cfg) {
   mkdirSync(dirname(CONFIG_PATH), { recursive: true });
   writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
   chmodSync(CONFIG_PATH, 0o600);
+  cache = { mtime: statSync(CONFIG_PATH).mtimeMs, data: cfg };
 }
 
 export function getToken() {
   const cfg = loadConfig();
   if (!cfg.token) {
-    die('not logged in, run: matpool login --name <username|phone> --password <password>');
+    die(`not logged in - run: ${pc.cyan('matpool login')}`);
   }
   return cfg.token;
 }
 
 export function die(msg, code = 1) {
-  console.error(red(`error: ${msg}`));
+  console.error(pc.red(`error: ${msg}`));
   process.exit(code);
 }
+
+export { pc };
