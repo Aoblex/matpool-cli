@@ -1,73 +1,89 @@
-import { loadConfig, die, pc } from './config.js';
-
-const BASE_URL = process.env.MATPOOL_API_BASE || 'https://matpool.com/api';
+import { loadConfig, pc } from './config.js';
 
 export class ApiError extends Error {
-  constructor(code, msg, status) {
-    super(msg || `api error (code=${code})`);
+  constructor(code, message, status) {
+    super(message || `API error (code=${code}, HTTP ${status})`);
+    this.name = 'ApiError';
     this.code = code;
     this.status = status;
   }
 }
 
-async function request(method, path, { params, body, headers } = {}) {
-  const cfg = loadConfig();
-  const url = new URL(BASE_URL + path);
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
-    }
+function timeoutMs() {
+  const value = Number(process.env.MATPOOL_TIMEOUT_MS || 30_000);
+  if (!Number.isSafeInteger(value) || value <= 0 || value > 2_147_483_647) {
+    throw new Error('MATPOOL_TIMEOUT_MS must be an integer between 1 and 2147483647');
+  }
+  return value;
+}
+
+async function request(method, path, { params, body, auth, authenticated = true } = {}) {
+  const base = process.env.MATPOOL_API_BASE || 'https://matpool.com/api';
+  const url = new URL(base.replace(/\/+$/, '') + path);
+  if (!['https:', 'http:'].includes(url.protocol)) throw new Error('API URL must use HTTP or HTTPS');
+  const credentials = authenticated ? (auth ?? loadConfig()) : {};
+  if (authenticated && !credentials.token) throw new Error('not logged in - run: matpool login');
+  for (const [key, value] of Object.entries(params || {})) {
+    if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
   }
 
-  const res = await fetch(url, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {}),
-      ...(cfg.userId ? { 'x-matpool-user-id': String(cfg.userId) } : {}),
-      ...headers,
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  let text;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        Accept: 'application/json',
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(credentials.token ? { Authorization: `Bearer ${credentials.token}` } : {}),
+        ...(credentials.userId != null ? { 'x-matpool-user-id': String(credentials.userId) } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(timeoutMs()),
+      // Never forward credentials or repeat a mutating request to a redirect target.
+      redirect: 'error',
+    });
+    text = await res.text();
+  } catch (err) {
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+      throw new Error('request timed out; for rent/stop/release, check instance state before retrying', { cause: err });
+    }
+    if (err instanceof TypeError) {
+      throw new Error(`network error: ${err.cause?.message || err.message}`, { cause: err });
+    }
+    throw err;
+  }
 
-  const text = await res.text();
   let data;
   try {
     data = JSON.parse(text);
   } catch {
-    throw new ApiError(-1, `invalid JSON response (HTTP ${res.status}): ${text.slice(0, 200)}`, res.status);
+    throw new ApiError(-1, `expected a JSON response (HTTP ${res.status})`, res.status);
   }
-
-  // Matpool wraps business status in a `code` field; 0 means success.
-  if (data && typeof data.code === 'number' && data.code !== 0) {
-    throw new ApiError(data.code, data.msg, res.status);
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new ApiError(-1, `invalid API response (HTTP ${res.status})`, res.status);
   }
   if (!res.ok) {
     throw new ApiError(data.code ?? -1, data.msg || `HTTP ${res.status}`, res.status);
   }
+  if (!Number.isInteger(data.code)) {
+    throw new ApiError(-1, 'API response is missing a numeric status code; the upstream API may have changed', res.status);
+  }
+  if (data.code !== 0) throw new ApiError(data.code, data.msg, res.status);
   return data;
 }
 
 export const api = {
   get: (path, opts) => request('GET', path, opts),
   post: (path, body, opts = {}) => request('POST', path, { ...opts, body }),
-  patch: (path, body, opts = {}) => request('PATCH', path, { ...opts, body }),
   del: (path, body, opts = {}) => request('DELETE', path, { ...opts, body }),
 };
 
-const HINTS = {
-  7: 'authentication failed or token expired',
-  176: 'missing or invalid token',
-};
-
 export function handleError(err) {
-  if (err instanceof ApiError) {
-    const hint = HINTS[err.code];
-    const loginHint = `run: ${pc.cyan('matpool login')}`;
-    die(hint ? `${err.message}\n${pc.yellow(`hint: ${hint} - ${loginHint}`)}` : err.message);
+  let message = err instanceof Error ? err.message : String(err);
+  if (err instanceof ApiError && ([7, 176].includes(err.code) || err.status === 401)) {
+    message += '\nhint: authentication failed or expired - run: matpool login';
   }
-  if (err.cause) {
-    die(`network error: ${err.cause.message || err.message}`);
-  }
-  die(err.message);
+  console.error(pc.red(`error: ${message}`));
+  process.exitCode = 1;
 }

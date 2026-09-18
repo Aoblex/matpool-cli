@@ -1,100 +1,85 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import pkg from '../package.json' with { type: 'json' };
 import { commands } from '../src/commands.js';
 import { handleError } from '../src/client.js';
 
-const program = new Command();
-
-program
+const program = new Command()
   .name('matpool')
-  .description('Command line tool for matpool.com (MatPool GPU cloud)')
-  .version('0.1.0');
+  .description('Unofficial CLI for MatPool GPU cloud')
+  .version(pkg.version)
+  .showHelpAfterError();
 
-program
-  .command('login')
-  .description('log in (prompts interactively when flags are omitted)')
+program.command('login')
+  .description('log in; prompt for omitted credentials in a terminal')
   .option('-n, --name <name>', 'username or phone number')
-  .option('-p, --password <password>', 'password (or use MATPOOL_PASSWORD)')
-  .action((opts) => commands.login(opts).catch(handleError));
+  .option('-p, --password <password>', 'password (prefer prompt or MATPOOL_PASSWORD)')
+  .action(commands.login);
 
-program
-  .command('logout')
-  .description('remove stored credentials')
-  .action(() => commands.logout().catch(handleError));
+program.command('logout')
+  .description('remove local credentials and attempt to invalidate the remote session')
+  .action(commands.logout);
 
-program
-  .command('whoami')
-  .description('show current user info')
-  .option('--json', 'raw JSON output')
-  .action((opts) => commands.whoami(opts).catch(handleError));
-
-program
-  .command('balance')
-  .description('show account balance')
-  .option('--json', 'raw JSON output')
-  .action((opts) => commands.balance(opts).catch(handleError));
-
-program
-  .command('machines')
-  .description('list available machines')
-  .option('-c, --category <category>', 'machine category filter')
-  .option('--param <k=v>', 'extra query parameter (repeatable)', collect, [])
-  .option('--json', 'raw JSON output')
-  .action((opts) => commands.machines(opts).catch(handleError));
-
-program
-  .command('hardwares')
-  .description('list hardware catalog')
-  .option('--json', 'raw JSON output')
-  .action((opts) => commands.hardwares(opts).catch(handleError));
-
-program
-  .command('images')
-  .description('list images')
-  .option('-s, --search <keyword>', 'search keyword')
-  .option('--json', 'raw JSON output')
-  .action((opts) => commands.images(opts).catch(handleError));
-
-program
-  .command('nodes')
-  .description('list your instances')
-  .option('-c, --category <category>', 'category filter')
-  .option('--json', 'raw JSON output')
-  .action((opts) => commands.nodes(opts).catch(handleError));
-
-program
-  .command('node')
-  .description('show instance detail')
-  .argument('<id>')
-  .option('--json', 'raw JSON output')
-  .action((id, opts) => commands.node(id, opts).catch(handleError));
-
-program
-  .command('rent')
-  .description('rent a machine')
-  .requiredOption('-m, --machine <id>', 'machine id (see: matpool machines)')
-  .requiredOption('-i, --image <id>', 'image id (see: matpool images)')
-  .option('-q, --qty <n>', 'number of machines', '1')
-  .option('--cmd <shell>', 'startup command')
-  .option('--env <json>', 'environment variables as JSON')
-  .option('--channel <channel>', 'channel')
-  .option('--dry-run', 'print the payload without renting')
-  .action((opts) => commands.rent(opts).catch(handleError));
-
-program
-  .command('stop')
-  .description('save a free 24h temp snapshot, then release the node')
-  .argument('<id>')
-  .action((id) => commands.stop(id).catch(handleError));
-
-program
-  .command('release')
-  .description('release (delete) a node')
-  .argument('<id>')
-  .action((id) => commands.release(id).catch(handleError));
-
-function collect(value, previous) {
-  return previous.concat([value]);
+for (const [name, description] of [
+  ['whoami', 'show current user info'],
+  ['balance', 'show account balance'],
+  ['hardwares', 'list hardware catalog'],
+]) {
+  program.command(name).description(description)
+    .option('--json', 'complete response data as JSON').action(commands[name]);
 }
 
-program.parse(process.argv);
+program.command('machines')
+  .description('list available machines')
+  .option('-c, --category <category>', 'machine category filter')
+  .option('--param <k=v>', 'extra query parameter (repeatable)', (value, previous) => [...previous, value], [])
+  .option('--json', 'complete response data as JSON')
+  .action(commands.machines);
+
+program.command('images')
+  .description('list images')
+  .option('-s, --search <keyword>', 'search keyword')
+  .option('--json', 'complete response data as JSON')
+  .action(commands.images);
+
+program.command('nodes')
+  .description('list your instances')
+  .option('-c, --category <category>', 'category filter')
+  .option('--json', 'complete response data as JSON')
+  .action(commands.nodes);
+
+program.command('node')
+  .description('show instance detail')
+  .argument('<id>', 'positive integer node ID')
+  .option('--json', 'complete response data as JSON')
+  .action(commands.node);
+
+program.command('rent')
+  .description('rent a machine (incurs charges; asks for confirmation)')
+  .requiredOption('-m, --machine <id>', 'machine ID (see: matpool machines)')
+  .requiredOption('-i, --image <id>', 'image ID (see: matpool images)')
+  .option('-q, --qty <n>', 'hardware quantity (positive integer)', '1')
+  .option('--cmd <shell>', 'startup command')
+  .option('--env <json>', 'environment variables as a JSON-encoded string')
+  .option('--channel <channel>', 'channel')
+  .option('--dry-run', 'print JSON payload without renting or confirming')
+  .option('-y, --yes', 'confirm the billable operation without prompting')
+  .action(commands.rent);
+
+program.command('stop')
+  .description('request a temporary snapshot, then release (snapshot completion is not verified)')
+  .argument('<id>', 'positive integer node ID')
+  .option('-y, --yes', 'acknowledge snapshot risk and confirm release without prompting')
+  .action(commands.stop);
+
+program.command('release')
+  .description('release an instance (unsaved data may be permanently lost)')
+  .argument('<id>', 'positive integer node ID')
+  .option('-y, --yes', 'confirm deletion without prompting')
+  .action(commands.release);
+
+try {
+  await program.parseAsync(process.argv);
+} catch (err) {
+  handleError(err);
+}

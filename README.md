@@ -1,75 +1,157 @@
 # matpool-cli
 
-Command line tool for matpool.com (MatPool GPU cloud): log in, browse the GPU market, rent and release instances.
+An unofficial CLI for [MatPool](https://matpool.com) GPU cloud: log in, browse machines, rent instances, and manage releases.
 
-MatPool does not offer an official public API or CLI for host rental. All endpoints in this project were reverse-engineered from the web console (`/fe-next` frontend bundles) and **may break when the site updates**.
+The API was reverse-engineered from the web console (`/fe-next` frontend bundles). It is not a supported public API and **may change without notice**. Use the web console to verify billing and instance state after an uncertain result.
 
-## Install
+## Requirements and installation
+
+Requires **Node.js 24 or newer** and npm.
 
 ```bash
 git clone https://github.com/Aoblex/matpool-cli.git
 cd matpool-cli
-npm link   # or: npm i -g .
+npm ci
+npm link
+matpool --help
 ```
 
-Requires Node.js >= 18. Zero dependencies.
+Alternatively, run `node bin/matpool.js` from the checkout instead of linking it.
 
-## Usage
+## Login
 
 ```bash
-matpool login                # interactive: prompts for username and password
-matpool login --name 13800000000 --password ****
+matpool login                        # interactive username and hidden password prompts
+matpool login --name 13800000000      # prompt for password only
 matpool whoami
 matpool balance
-
-matpool machines            # available machines (table output, --json for raw)
-matpool hardwares           # hardware catalog
-matpool images --search pytorch
-
-matpool rent --machine <machine-id> --image <image-id> --dry-run   # preview payload first
-matpool rent --machine <machine-id> --image <image-id>
-matpool nodes
-matpool node <node-id>
-matpool stop <node-id>      # save a free 24h temp snapshot, then release (stops billing)
-matpool release <node-id>   # release immediately
+matpool logout
 ```
 
-Credentials are stored in `~/.config/matpool-cli/config.json` (mode 600).
+In automation, supply `--name` and `MATPOOL_PASSWORD` through your runner's secret management. `--password` is supported, but can expose the password in shell history or process arguments. Passwords are never saved to disk.
+
+Tokens are stored unencrypted in `~/.config/matpool-cli/config.json`, with file permissions `0600` on POSIX systems. Treat that file as a secret. Writes are atomic. Failed login attempts leave existing credentials unchanged. Logout removes local credentials first, then attempts to invalidate the remote session; a warning means remote invalidation was not confirmed.
+
+## Browse
+
+```bash
+matpool machines
+matpool machines --category <category> --param key=value
+matpool hardwares
+matpool images --search pytorch
+matpool nodes
+matpool node <node-id>
+```
+
+List commands show a compact table. Instance details use key/value output without truncating values. `--param` is repeatable; repeated keys use the last value. `--category` takes precedence over a category supplied through `--param`.
+
+### JSON and scripting
+
+Every read command accepts `--json`:
+
+```bash
+matpool nodes --json > nodes.json
+matpool machines --json | jq .
+```
+
+JSON output preserves the **entire response `data` field**, including any pagination metadata, not the outer `{code, msg, data}` envelope. The CLI fetches one response; it does not automatically traverse pages. Human-readable progress and status messages go to stderr. There is no spinner when stderr is redirected.
+
+Successful commands exit with `0`; validation, authentication, network, and API errors exit nonzero. Declining a confirmation also exits nonzero. Logout succeeds once local credentials are removed, even if remote invalidation fails.
+
+## Rent
+
+Preview the exact payload first. A dry run fetches machine information but does not create an instance:
+
+```bash
+matpool rent --machine <machine-id> --image <image-id> --dry-run
+matpool rent --machine <machine-id> --image <image-id>
+```
+
+Renting incurs charges and asks for confirmation. In automation, explicitly pass `--yes`:
+
+```bash
+matpool rent --machine <machine-id> --image <image-id> --qty 1 --yes
+```
+
+Additional options: `--cmd <shell>`, `--env <json>`, and `--channel <channel>`. Machine/image IDs and hardware quantity must be positive safe integers. `--qty` maps to the API's `hardware_qty`; it should not be interpreted as a promise to create that many independent instances. `--env` must be valid JSON and is forwarded as a JSON-encoded string in `envs`, preserving the reverse-engineered form's behavior; the accepted JSON structure is determined by the upstream API.
+
+Dry-run stdout is a single JSON document. A successful rental prints the returned `data` as JSON. Payloads and responses may contain secrets, especially environment variables and instance credentials; do not publish them in logs.
+
+## Release and temporary snapshots
+
+```bash
+matpool release <node-id>             # asks for confirmation
+matpool release <node-id> --yes       # explicitly confirm deletion
+matpool stop <node-id>                # request temp snapshot, then release
+```
+
+**Release can permanently delete unsaved instance data.** Back up important files before using either command. Non-interactive mutation commands require `--yes`.
+
+`stop` calls `/node/quick_save` and, only if that request succeeds, releases the node. The web console describes this as a free temporary snapshot with nominal 24-hour retention. **This CLI cannot verify that the snapshot has finished or is restorable.** A successful API response may only acknowledge the request. Confirmation (or `--yes`) acknowledges this risk. For important workloads, create and verify a backup in the web console before releasing instead.
+
+If the snapshot request fails, no release is attempted. If release fails afterward, the error reports the partial result; the instance may still be running and accruing charges. Resume from snapshots in the web console; this CLI does not implement restoration.
+
+Requests have a 30-second timeout and are **never automatically retried**. After a timeout or connection failure on a mutation, inspect `matpool nodes`, `matpool node <id>`, or the web console before retrying: the server may already have applied the operation.
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `MATPOOL_CONFIG` | `~/.config/matpool-cli/config.json` | Credential/config file path |
+| `MATPOOL_PASSWORD` | none | Non-interactive login password |
+| `MATPOOL_API_BASE` | `https://matpool.com/api` | API base URL; only override for a trusted server |
+| `MATPOOL_TIMEOUT_MS` | `30000` | Request timeout in milliseconds (integer, 1–2147483647) |
+| `NO_COLOR` | unset | Disable ANSI colors |
+
+An API base override receives credentials. Do not point it at untrusted servers or send real credentials over plain HTTP. Redirects are rejected. A saved `channel` property is used for rental unless overridden by `--channel`. Invalid configuration files produce an error instead of being silently overwritten.
+
+## Development
+
+```bash
+npm ci
+npm run check
+npm test
+npm run test:coverage
+npm pack --dry-run
+```
+
+Native ESM, ESLint, Node's built-in test runner, no build step. Tests use mocked fetch responses and a local HTTP server; they never access MatPool or rent/release real instances.
+
+- `bin/matpool.js`: command definitions and central error handling
+- `src/client.js`: authentication headers, timeout, response and network errors
+- `src/config.js`: credential reading and atomic private writes
+- `src/commands.js`: validation and command workflows
+- `src/ui.js`: prompts, confirmations, progress, and rendering
+- `test/`: unit and CLI integration tests
 
 ## Reverse-engineered API reference
 
-Base URL: `https://matpool.com/api`. Business status is in the `code` field of the response body (0 = success).
+Base URL: `https://matpool.com/api`. Business status is in the numeric `code` field (`0` means success).
 
-Authentication (both headers are required):
+Login sends `{password, name}` or `{password, mobile}` without saved credentials. The resulting token is used to fetch `/user`, then subsequent authenticated requests include:
 
+```text
+Authorization: Bearer <token>
+x-matpool-user-id: <user id>
 ```
-Authorization: Bearer <token>     # returned by POST /login
-x-matpool-user-id: <user id>     # the `id` field from GET /user
-```
 
-| Method | Path | Description |
+| Method | Path | Purpose |
 | --- | --- | --- |
-| POST | `/login` | Log in, body: `{password, name}` or `{password, mobile}` |
+| POST | `/login` | Log in; token returned at the response root |
 | GET | `/user` | Current user info |
-| POST | `/user/logout` | Log out |
-| GET | `/user/account` | Balance / account |
-| GET | `/user/bills` | Bills |
-| GET | `/machines` | Available machine list |
+| POST | `/user/logout` | Invalidate session |
+| GET | `/user/account` | Account balance |
+| GET | `/machines` | Available machines |
 | GET | `/hardwares` | Hardware catalog |
-| GET | `/hardware_range` | Hardware filter ranges |
-| GET | `/images` | Image list |
-| POST | `/node` | Rent a machine (web form params + `machine_category`, `hardware_qty`) |
-| GET | `/nodes` | Your instance list |
+| GET | `/images` | Images |
+| GET | `/nodes` | User instances |
 | GET | `/node?id=` | Instance detail |
-| PATCH | `/node` | Update an instance |
-| DELETE | `/node` | Release an instance, body: `{id}` |
-| POST | `/node/quick_save` | Create a free temp snapshot (24h) |
-| POST | `/node/start_by_quick_save` | Resume from a temp snapshot |
-| POST | `/node/clone` | Clone an instance |
-| GET | `/node/bill` | Instance billing |
-| POST | `/node/storage_sync` | Sync data to cloud disk |
-| POST | `/flag` | Mark an instance |
+| POST | `/node` | Rent using selected machine fields and runtime options |
+| DELETE | `/node` | Release; body `{id}` |
+| POST | `/node/quick_save` | Request a temporary snapshot; body `{id}` |
+
+Other observed endpoints, not implemented here: `/user/bills`, `/hardware_range`, `PATCH /node`, `/node/start_by_quick_save`, `/node/clone`, `/node/bill`, `/node/storage_sync`, and `/flag`.
 
 ## Disclaimer
 
-For personal learning only. Please respect MatPool's terms of service and avoid high-frequency requests.
+For personal learning and use. Respect MatPool's terms of service and avoid high-frequency requests. This project is not affiliated with MatPool and cannot guarantee upstream API behavior, snapshot durability, or billing outcomes.

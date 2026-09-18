@@ -1,45 +1,49 @@
-import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import pc from 'picocolors';
 
-const CONFIG_PATH = process.env.MATPOOL_CONFIG
-  || join(homedir(), '.config', 'matpool-cli', 'config.json');
-
-// Hot reload: cache is keyed on file mtime, so edits from another process
-// (or another terminal running `matpool login`) are picked up immediately.
-let cache = { mtime: 0, data: {} };
+function configPath() {
+  return process.env.MATPOOL_CONFIG || join(homedir(), '.config', 'matpool-cli', 'config.json');
+}
 
 export function loadConfig() {
+  let text;
   try {
-    const mtime = statSync(CONFIG_PATH).mtimeMs;
-    if (mtime !== cache.mtime) {
-      cache = { mtime, data: JSON.parse(readFileSync(CONFIG_PATH, 'utf8')) };
-    }
+    text = readFileSync(configPath(), 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return {};
+    throw new Error(`cannot read config: ${err.message}`, { cause: err });
+  }
+  let cfg;
+  try {
+    cfg = JSON.parse(text);
   } catch {
-    cache = { mtime: 0, data: {} };
+    throw new Error(`invalid JSON in config: ${configPath()}`);
   }
-  return cache.data;
+  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) {
+    throw new Error(`config must be a JSON object: ${configPath()}`);
+  }
+  if (cfg.token !== undefined && (typeof cfg.token !== 'string' || !cfg.token)) {
+    throw new Error('config token must be a non-empty string');
+  }
+  return cfg;
 }
 
+// Write privately from the start, then replace atomically so readers never see
+// partial JSON. No cache: this CLI's config is tiny and credentials may change.
 export function saveConfig(cfg) {
-  mkdirSync(dirname(CONFIG_PATH), { recursive: true });
-  writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
-  chmodSync(CONFIG_PATH, 0o600);
-  cache = { mtime: statSync(CONFIG_PATH).mtimeMs, data: cfg };
-}
-
-export function getToken() {
-  const cfg = loadConfig();
-  if (!cfg.token) {
-    die(`not logged in - run: ${pc.cyan('matpool login')}`);
+  const path = configPath();
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    renameSync(temporary, path);
+  } catch (err) {
+    try { unlinkSync(temporary); } catch { /* Best effort; preserve the original write error. */ }
+    throw err;
   }
-  return cfg.token;
-}
-
-export function die(msg, code = 1) {
-  console.error(pc.red(`error: ${msg}`));
-  process.exit(code);
 }
 
 export { pc };
