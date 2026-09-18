@@ -1,9 +1,16 @@
 import readline from 'node:readline';
 import { api } from './client.js';
-import { loadConfig, saveConfig, die } from './config.js';
+import { loadConfig, saveConfig, die, green, yellow } from './config.js';
 
 function print(data) {
   console.log(JSON.stringify(data, null, 2));
+}
+
+async function prompt(query) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await new Promise((resolve) => rl.question(query, resolve));
+  rl.close();
+  return answer.trim();
 }
 
 async function promptHidden(query) {
@@ -31,10 +38,11 @@ function parseKV(pairs = []) {
 
 export const commands = {
   async login(opts) {
-    const name = opts.name || opts.mobile;
-    if (!name) die('login requires --name <username or phone>');
+    let name = opts.name || opts.mobile;
+    if (!name && process.stdin.isTTY) name = await prompt('username or phone: ');
+    if (!name) die('login requires a username or phone number');
     let password = opts.password || process.env.MATPOOL_PASSWORD;
-    if (!password) password = await promptHidden('password: ');
+    if (!password && process.stdin.isTTY) password = await promptHidden('password: ');
     if (!password) die('empty password');
 
     const body = /^1\d{10}$/.test(name) ? { mobile: name, password } : { name, password };
@@ -46,13 +54,13 @@ export const commands = {
     const info = await api.get('/user');
     const id = info.data?.id ?? info.id;
     if (id) saveConfig({ ...loadConfig(), userId: id });
-    console.log(`logged in as ${info.data?.name || name} (uid=${id})`);
+    console.log(green(`logged in as ${info.data?.name || name} (uid=${id})`));
   },
 
   async logout() {
     await api.post('/user/logout').catch(() => {});
     saveConfig({ ...loadConfig(), token: undefined, userId: undefined });
-    console.log('logged out');
+    console.log(green('logged out'));
   },
 
   async whoami() {
@@ -115,18 +123,19 @@ export const commands = {
     if (opts.channel) payload.c = opts.channel;
 
     if (opts.dryRun) {
+      console.log(yellow('dry run - payload that would be sent:'));
       print(payload);
       return;
     }
     const res = await api.post('/node', payload);
-    console.log('rented successfully:');
+    console.log(green('rented successfully:'));
     print(res.data);
   },
 
   async release(id) {
     if (!id) die('usage: matpool release <node-id>');
     await api.del('/node', { id });
-    console.log(`node ${id} released`);
+    console.log(green(`node ${id} released`));
   },
 
   // "stop" on matpool = save a free 24h temp snapshot, then release the node.
@@ -135,6 +144,6 @@ export const commands = {
     await api.post('/node/quick_save', { id: Number(id) });
     console.log('temp snapshot created, releasing node...');
     await api.del('/node', { id });
-    console.log(`node ${id} stopped`);
+    console.log(green(`node ${id} stopped`));
   },
 };

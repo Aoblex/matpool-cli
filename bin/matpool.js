@@ -8,7 +8,8 @@ const USAGE = `matpool-cli - command line tool for matpool.com (MatPool GPU clou
 usage: matpool <command> [options]
 
 auth:
-  login [--name <username|phone>] [--password <pwd>]   log in (password also via prompt or MATPOOL_PASSWORD)
+  login [--name <username|phone>] [--password <pwd>]   log in (prompts interactively when flags omitted;
+                                                     password also via MATPOOL_PASSWORD)
   logout                                               remove stored credentials
   whoami                                               show current user info
   balance                                              show account balance

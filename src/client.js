@@ -1,4 +1,4 @@
-import { loadConfig, die } from './config.js';
+import { loadConfig, die, yellow } from './config.js';
 
 const BASE_URL = process.env.MATPOOL_API_BASE || 'https://matpool.com/api';
 
@@ -55,8 +55,14 @@ export const api = {
   del: (path, body, opts = {}) => request('DELETE', path, { ...opts, body }),
 };
 
+const HINTS = {
+  7: 'authentication failed or token expired - run: matpool login',
+  176: 'missing or invalid token - run: matpool login',
+};
+
 export function handleError(err) {
   if (err instanceof ApiError) {
+    if (HINTS[err.code]) die(`${err.message}\n${yellow('hint: ' + HINTS[err.code])}`);
     die(err.message);
   }
   if (err.cause) {

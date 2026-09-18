@@ -17,7 +17,8 @@ Requires Node.js >= 18. Zero dependencies.
 ## Usage
 
 ```bash
-matpool login --name 13800000000 --password ****   # username or phone number
+matpool login                # interactive: prompts for username and password
+matpool login --name 13800000000 --password ****
 matpool whoami
 matpool balance
 

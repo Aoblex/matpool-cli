@@ -5,6 +5,11 @@ import { join, dirname } from 'node:path';
 const CONFIG_PATH = process.env.MATPOOL_CONFIG
   || join(homedir(), '.config', 'matpool-cli', 'config.json');
 
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
+export { green, yellow };
+
 export function loadConfig() {
   if (!existsSync(CONFIG_PATH)) return {};
   try {
@@ -29,6 +34,6 @@ export function getToken() {
 }
 
 export function die(msg, code = 1) {
-  console.error(`error: ${msg}`);
+  console.error(red(`error: ${msg}`));
   process.exit(code);
 }
