@@ -10,7 +10,8 @@ Inspected bundles (paths are relative to `https://matpool.com/fe-next/js/`):
 - `6674.900a5831.js`: module 34916 builds resource identifiers as `{hardware_id: host.id, agent_id: host.agentId}` for individual hosts, and `{image_id: Number(imageId)}`. Current `/machine` responses have no `id`, so `hardware_id` is omitted. Image search uses `keywords: JSON.stringify(keywordList)` and `page`/`per_page`.
 - `3163.935e28c0.js`: `getRentParams` sets `vnc_switcher`, `auto_password`, channel, and optional runtime fields. `EnvsInput` explicitly documents `FOO=bar;BAZ=tic`.
 - `8921.27b27798.js`: `rentHost` adds `machine_category` and `hardware_qty`. Quantity is `floor(hostNum / unitStep)` with `unitStep = physicalTotal / unit.total`. Rental success is based on `code === 0`, not the presence of `data`.
-- `5993.ae269a96.js`: `NodePause.onSubmit` calls `quickSaveNode({request_id: nodeData.displayID, cancel_node: true})`. There is no subsequent DELETE. Its UI warns that a failed snapshot resumes running/billing. `NodeRelease` uses the numeric instance ID. Node lists use `userNodes`; detail uses `userNode`.
+- `5993.ae269a96.js`: `NodePause.onSubmit` calls `quickSaveNode({request_id: nodeData.displayID, cancel_node: true})`. There is no subsequent DELETE. Its UI warns that a failed snapshot resumes running/billing. `NodeSave` calls `saveNode` with `{status: 8, id, snapshot_required: true, snapshot_subject, snapshot_release_node, request_vol_id}`; the personal-environment case sends an empty `request_vol_id` array. Names are required and limited to 32 characters. `NodeRelease` uses the numeric instance ID. Node lists use `userNodes`; detail uses `userNode`.
+- `9871.8eddfb74.js`: module 1654 maps `saveNode` to `PATCH /node` and `quickSaveNode` to `POST /node/quick_save`.
 
 ## Read-only response shapes
 
@@ -33,7 +34,7 @@ All four list endpoints reject requests without `page` and `per_page`. Paginatio
 
 Human summaries allowlist fields because user and instance responses can contain passwords, service tokens, image credentials, environment variables, and storage keys. Explicit `--json` remains unredacted for local scripting.
 
-Read commands, rental dry-run, and one explicitly authorized low-cost rent/save-and-stop lifecycle were verified against the real API. Direct release and logout mutations were not exercised against real resources. These observations do not guarantee future billing, image compatibility, or asynchronous completion.
+Read commands, rental dry-run, and one explicitly authorized low-cost rent/save-and-stop lifecycle were verified against the real API. Persistent named-environment saves, direct release, and logout mutations were not exercised against real resources. These observations do not guarantee future billing, image compatibility, or asynchronous completion.
 
 ## Live lifecycle regression
 

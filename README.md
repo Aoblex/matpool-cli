@@ -84,19 +84,22 @@ Additional options: `--cmd <shell>`, `--env 'KEY=value;KEY2=value'`, and `--chan
 
 Dry-run stdout is a single JSON payload. A successful rental prints the complete API response (including `code`); a status-only acknowledgment is valid. Read-command `--json` output and mutation payloads/responses may contain secrets, especially service tokens, environment variables and instance credentials; do not publish them in logs.
 
-## Release and temporary snapshots
+## Saved environments, release, and temporary snapshots
 
 ```bash
-matpool release <node-id>             # asks for confirmation
-matpool release <node-id> --yes       # explicitly confirm deletion
-matpool stop <node-id>                # ask the server to save, then stop asynchronously
+matpool save --name "research-env"                       # auto-select the only running instance
+matpool save <node-id> --name "research-env" --release   # specify the instance when several are running
+matpool release <node-id>                                 # permanently release without saving
+matpool stop <node-id>                                    # create a temporary snapshot and stop
 ```
 
-**Release can permanently delete unsaved instance data.** Back up important files before using either command. Non-interactive mutation commands require `--yes`.
+All four commands ask for confirmation; pass `--yes` only when the mutation is intentional. **Release can permanently delete unsaved instance data.**
 
-`stop` reads the instance to obtain its `displayID`, then verifies `supportQuickSave` using the matching node-list entry (the detail endpoint can incorrectly return `false`). It then follows the web client: `POST /node/quick_save` with `{request_id: displayID, cancel_node: true}`. **The server coordinates saving and stopping; the CLI never sends a separate DELETE.** The response is an acknowledgment, not proof that the instance has stopped or the snapshot is restorable.
+`save` requests a named personal environment. When the node ID is omitted, the CLI selects the instance only if exactly one instance is running; it fails instead of guessing when none or several are running. The name is required and limited to 32 characters. The official [saved-environment guide](https://matpool.com/supports/snapshot/) says saving captures filesystem changes outside the mounted network disk (`/mnt`), writes a `.snap` file that consumes network-disk quota, and makes the instance unavailable while saving. Do not delete or edit the `.snap` file directly. Without `--release`, the instance resumes after saving. With `--release`, the server releases it only after a successful save; after a failed save it may resume running and billing. The command returns when the server accepts the asynchronous request, so verify completion under **My Environments** in the web console.
 
-The web console describes nominal 24-hour snapshot retention and warns that a failed save can leave the instance running and billing. Verify completion in the web console before considering the operation finished. Back up important files separately. Resume from snapshots in the web console; this CLI does not implement restoration.
+`stop` is different: it creates a nominally 24-hour temporary snapshot. It reads the instance to obtain its `displayID`, verifies `supportQuickSave` using the matching node-list entry (the detail endpoint can incorrectly return `false`), then sends `POST /node/quick_save` with `{request_id: displayID, cancel_node: true}`. **The server coordinates saving and stopping; the CLI never sends a separate DELETE.** Resume from temporary snapshots in the web console; this CLI does not implement restoration.
+
+For either save workflow, ensure the relevant regional network disk has enough free space and no important process is running. Back up important files separately. Team-environment selection is not currently exposed by this CLI; `save` targets the personal environment.
 
 Requests have a 30-second timeout and are **never automatically retried**. After a timeout or connection failure on a mutation, inspect `matpool nodes`, `matpool node <id>`, or the web console before retrying: the server may already have applied the operation.
 
@@ -156,10 +159,11 @@ x-matpool-user-id: <user id>
 | GET | `/nodes` | User instances |
 | GET | `/node?id=` | Instance detail |
 | POST | `/node` | Rent using `agent_id`, `image_id`, `machine_category`, `hardware_qty`, and runtime options |
+| PATCH | `/node` | Save a persistent environment using status `8`, node ID, name, release choice, and personal/team volume selection |
 | DELETE | `/node` | Release; body `{id}` |
-| POST | `/node/quick_save` | Save and stop; body `{request_id: displayID, cancel_node: true}` |
+| POST | `/node/quick_save` | Save a temporary snapshot and stop; body `{request_id: displayID, cancel_node: true}` |
 
-Other observed endpoints, not implemented here: `/user/bills`, `/hardware_range`, `PATCH /node`, `/node/start_by_quick_save`, `/node/clone`, `/node/bill`, `/node/storage_sync`, and `/flag`.
+Other observed endpoints, not implemented here: `/user/bills`, `/hardware_range`, `/node/start_by_quick_save`, `/node/clone`, `/node/bill`, `/node/storage_sync`, and `/flag`.
 
 ## Disclaimer
 

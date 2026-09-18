@@ -250,10 +250,66 @@ test('rent: --yes submits the previewed payload', async (t) => {
   assert.deepEqual(JSON.parse(output[0]), { code: 0 });
 });
 
-test('release/stop: invalid IDs never reach API', async () => {
+test('save/release/stop: invalid IDs never reach API', async () => {
+  await assert.rejects(commands.save('0', { name: 'env', yes: true }), /positive/);
   await assert.rejects(commands.release('abc', { yes: true }), /positive/);
   await assert.rejects(commands.stop('-1', { yes: true }), /positive/);
   assert.equal(calls.length, 0);
+});
+
+test('save: validates names before contacting the API', async () => {
+  for (const name of ['', '   ', 'x'.repeat(33)]) {
+    await assert.rejects(commands.save('12', { name, yes: true }), /environment name/);
+  }
+  assert.equal(calls.length, 0);
+});
+
+test('save: automatically selects the only running instance', async (t) => {
+  loggedIn();
+  respond(t, [{ userNodes: [userNode], pagination: { total: 1 } }, { code: 0 }]);
+  await commands.save(undefined, { name: 'env', yes: true });
+  assert.equal(calls[0].method, 'GET');
+  assert.equal(calls[0].url.pathname, '/api/nodes');
+  assert.equal(calls[0].url.searchParams.get('statuses'), '2');
+  assert.equal(calls[0].url.searchParams.get('per_page'), '2');
+  assert.equal(JSON.parse(calls[1].body).id, userNode.node.id);
+});
+
+test('save: automatic selection fails closed when the target is not unique', async (t) => {
+  loggedIn();
+  respond(t, [
+    { userNodes: [], pagination: { total: 0 } },
+    { userNodes: [userNode, { ...userNode, node: { id: 13 } }], pagination: { total: 2 } },
+  ]);
+  await assert.rejects(commands.save(undefined, { name: 'env', yes: true }), /no running instance/);
+  await assert.rejects(commands.save(undefined, { name: 'env', yes: true }), /multiple running instances/);
+  assert.ok(calls.every((call) => call.method === 'GET'));
+});
+
+test('save: requests a named personal environment without releasing by default', async (t) => {
+  loggedIn();
+  respond(t, [{ code: 0 }]);
+  await commands.save('12', { name: '  Research env  ', yes: true });
+  assert.equal(calls[0].method, 'PATCH');
+  assert.equal(calls[0].url.pathname, '/api/node');
+  assert.deepEqual(JSON.parse(calls[0].body), {
+    status: 8,
+    id: 12,
+    snapshot_required: true,
+    snapshot_subject: 'Research env',
+    snapshot_release_node: false,
+    request_vol_id: [],
+  });
+  assert.match(errors.join('\n'), /Completion is pending/);
+});
+
+test('save: --release only asks the server to release after a successful save', async (t) => {
+  loggedIn();
+  respond(t, [{ code: 0 }]);
+  await commands.save('12', { name: 'env', release: true, yes: true });
+  assert.deepEqual(calls.map((call) => call.method), ['PATCH']);
+  assert.equal(JSON.parse(calls[0].body).snapshot_release_node, true);
+  assert.match(errors.join('\n'), /resume running and billing/);
 });
 
 test('stop: failed snapshot never releases node', async (t) => {

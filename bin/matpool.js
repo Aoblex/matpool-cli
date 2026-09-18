@@ -67,6 +67,14 @@ program.command('rent')
   .option('-y, --yes', 'confirm the billable operation without prompting')
   .action(commands.rent);
 
+program.command('save')
+  .description('save the instance as a named, persistent environment')
+  .argument('[id]', 'node ID; omitted when exactly one instance is running')
+  .requiredOption('-n, --name <name>', 'environment name (maximum 32 characters)')
+  .option('--release', 'release the instance after a successful save')
+  .option('-y, --yes', 'confirm saving without prompting')
+  .action(commands.save);
+
 program.command('stop')
   .description('ask the server to save a temporary snapshot and stop the instance asynchronously')
   .argument('<id>', 'positive integer node ID')

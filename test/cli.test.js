@@ -101,12 +101,38 @@ test('CLI: piped JSON is parseable and preserves metadata', async (t) => {
 
 test('CLI: mutations refuse noninteractive execution without --yes', async (t) => {
   const { run, requests } = await fixture(t);
-  for (const args of [['release', '12'], ['stop', '12'], ['rent', '-m', '1', '-i', '2']]) {
+  for (const args of [['save', '12', '--name', 'env'], ['release', '12'], ['stop', '12'], ['rent', '-m', '1', '-i', '2']]) {
     const result = await run(args);
     assert.equal(result.code, 1);
     assert.match(result.stderr, /--yes/);
   }
   assert.ok(requests.every((request) => request.startsWith('GET ')));
+});
+
+test('CLI: save --yes performs PATCH with the documented environment payload', async (t) => {
+  let body;
+  const { run, requests } = await fixture(t, (req, res) => {
+    let text = '';
+    req.on('data', (chunk) => { text += chunk; });
+    req.on('end', () => {
+      body = JSON.parse(text);
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ code: 0 }));
+    });
+  });
+  const result = await run(['save', '12', '--name', 'Research env', '--release', '--yes']);
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /Completion is pending/);
+  assert.deepEqual(requests, ['PATCH /api/node']);
+  assert.deepEqual(body, {
+    status: 8,
+    id: 12,
+    snapshot_required: true,
+    snapshot_subject: 'Research env',
+    snapshot_release_node: true,
+    request_vol_id: [],
+  });
 });
 
 test('CLI: release --yes performs DELETE and uses stderr for status', async (t) => {

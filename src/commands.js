@@ -160,6 +160,43 @@ export const commands = {
     json(res);
   },
 
+  async save(id, opts = {}) {
+    const name = String(opts.name ?? '').trim();
+    if (!name) throw new Error('environment name is required');
+    if (name.length > 32) throw new Error('environment name must be at most 32 characters');
+    let nodeId;
+    if (id !== undefined) {
+      nodeId = positiveInteger(id, 'node ID');
+    } else {
+      const result = await spin('Finding running instance…', () => api.get('/nodes', { params: {
+        page: 1, per_page: 2, order: false, statuses: 2,
+      } }));
+      const data = responseData(result);
+      const instances = data.userNodes;
+      const total = data.pagination?.total ?? instances?.length;
+      if (!Array.isArray(instances) || !Number.isInteger(total)) {
+        throw new Error('unrecognized instance list; specify a node ID explicitly');
+      }
+      if (total === 0) throw new Error('no running instance found');
+      if (total !== 1 || instances.length !== 1) {
+        throw new Error('multiple running instances found; specify the node ID: matpool save <id> --name <name>');
+      }
+      nodeId = positiveInteger(instances[0]?.node?.id, 'node ID');
+    }
+    const release = opts.release === true;
+    const outcome = release ? 'save the environment, then release the instance' : 'save the environment, then resume the instance';
+    await confirmAction(`Node ${nodeId}: ${outcome}? The instance is unavailable while saving.`, opts.yes);
+    await spin('Requesting environment save…', () => api.patch('/node', {
+      status: 8,
+      id: nodeId,
+      snapshot_required: true,
+      snapshot_subject: name,
+      snapshot_release_node: release,
+      request_vol_id: [],
+    }));
+    console.error(`Environment save request accepted for node ${nodeId}. Completion is pending; check its state and saved environments in the web console.${release ? ' If saving fails, the node may resume running and billing.' : ''}`);
+  },
+
   async release(id, opts = {}) {
     const nodeId = positiveInteger(id, 'node ID');
     await confirmAction(`Release node ${nodeId}? Unsaved local data may be permanently lost.`, opts.yes);

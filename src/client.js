@@ -46,7 +46,7 @@ async function request(method, path, { params, body, auth, authenticated = true 
     text = await res.text();
   } catch (err) {
     if (err.name === 'TimeoutError' || err.name === 'AbortError') {
-      throw new Error('request timed out; for rent/stop/release, check instance state before retrying', { cause: err });
+      throw new Error('request timed out; after a mutation, check instance state before retrying', { cause: err });
     }
     if (err instanceof TypeError) {
       throw new Error(`network error: ${err.cause?.message || err.message}`, { cause: err });
@@ -76,6 +76,7 @@ async function request(method, path, { params, body, auth, authenticated = true 
 export const api = {
   get: (path, opts) => request('GET', path, opts),
   post: (path, body, opts = {}) => request('POST', path, { ...opts, body }),
+  patch: (path, body, opts = {}) => request('PATCH', path, { ...opts, body }),
   del: (path, body, opts = {}) => request('DELETE', path, { ...opts, body }),
 };
 
