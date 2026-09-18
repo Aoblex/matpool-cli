@@ -3,7 +3,7 @@ import { commands } from '../src/commands.js';
 import { handleError } from '../src/client.js';
 import { die } from '../src/config.js';
 
-const USAGE = `matpool-cli — command line tool for matpool.com (矩池云)
+const USAGE = `matpool-cli - command line tool for matpool.com (MatPool GPU cloud)
 
 usage: matpool <command> [options]
 
