@@ -1,7 +1,7 @@
 {
   "name": "matpool-cli",
   "version": "0.1.0",
-  "description": "Command line tool for matpool.com (矩池云): login, browse GPU market, rent and manage instances",
+  "description": "Command line tool for matpool.com (MatPool GPU cloud): login, browse the GPU market, rent and manage instances",
   "type": "module",
   "bin": {
     "matpool": "bin/matpool.js"
@@ -19,7 +19,6 @@
   },
   "keywords": [
     "matpool",
-    "矩池云",
     "gpu",
     "cli"
   ]
