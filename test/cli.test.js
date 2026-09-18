@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pkg from '../package.json' with { type: 'json' };
-import { machine } from './fixtures.js';
+import { machine, userNode } from './fixtures.js';
 
 const cli = fileURLToPath(new URL('../bin/matpool.js', import.meta.url));
 
@@ -125,6 +125,34 @@ test('CLI: synchronous validation errors use concise central error handler', asy
   assert.match(result.stderr, /error: node ID must be a positive integer/);
   assert.doesNotMatch(result.stderr, /at .*\.js:/);
   assert.deepEqual(requests, []);
+});
+
+test('CLI: stop handles the live detail/list capability discrepancy without DELETE', async (t) => {
+  let body;
+  const { run, requests } = await fixture(t, (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    if (req.url.startsWith('/api/node?')) {
+      res.end(JSON.stringify({ code: 0, userNode: { ...userNode, supportQuickSave: false } }));
+    } else if (req.url.startsWith('/api/nodes?')) {
+      res.end(JSON.stringify({ code: 0, userNodes: [userNode] }));
+    } else if (req.url === '/api/node/quick_save' && req.method === 'POST') {
+      let text = '';
+      req.on('data', (chunk) => { text += chunk; });
+      req.on('end', () => {
+        body = JSON.parse(text);
+        res.end(JSON.stringify({ code: 0 }));
+      });
+    } else {
+      res.writeHead(400);
+      res.end(JSON.stringify({ code: -1, msg: 'unexpected request' }));
+    }
+  });
+  const result = await run(['stop', '12', '--yes']);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stderr, /Completion is pending/);
+  assert.deepEqual(body, { request_id: userNode.displayID, cancel_node: true });
+  assert.equal(requests.length, 3);
+  assert.ok(requests.every((request) => !request.startsWith('DELETE ')));
 });
 
 test('CLI: timeout cancels a stalled response', async (t) => {

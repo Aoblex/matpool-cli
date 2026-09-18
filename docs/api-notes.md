@@ -33,4 +33,16 @@ All four list endpoints reject requests without `page` and `per_page`. Paginatio
 
 Human summaries allowlist fields because user and instance responses can contain passwords, service tokens, image credentials, environment variables, and storage keys. Explicit `--json` remains unredacted for local scripting.
 
-Read commands and rental dry-run were verified against the real API. Rent, release, save-and-stop, and logout mutations were not exercised against real resources. Their request contracts are covered by synthetic tests and public frontend evidence; actual billing, image compatibility, and asynchronous completion still require upstream confirmation.
+Read commands, rental dry-run, and one explicitly authorized low-cost rent/save-and-stop lifecycle were verified against the real API. Direct release and logout mutations were not exercised against real resources. These observations do not guarantee future billing, image compatibility, or asynchronous completion.
+
+## Live lifecycle regression
+
+A single allocation unit with a cached Python image was rented without mounting the user's network disk. An otherwise unique environment marker identified the test instance; no existing instances were modified.
+
+- Rental returned `{code: 0, msg, node}` and the instance reached status `2` (running).
+- `/node` reported `supportQuickSave: false` while the matching `/nodes` entry reported `true`. This blocked the original CLI implementation. The fix queries `/nodes` using `keywords: displayID`, matches both `node.id` and `displayID`, and uses that entry's capability flag. Missing or mismatched entries fail closed.
+- Save-and-stop returned success. Observed states were `8 → 9 → 6 → 4`; the final detail contained a finish timestamp and the billing endpoint returned a settled (type `2`) bill.
+- The temporary save appeared as `userNode.nodeStorage` in the node list, not as a regular `/snapshots` entry. It had status `3`, `deleted: false`, and an expiration 24 hours after its update timestamp. Restoration was not tested.
+- `/nodes` with `order: false` returns recent entries first; `order: true` can put the new instance beyond the first page.
+
+Regression fixtures contain only synthetic values, including the detail/list capability discrepancy. No live node IDs, account details, or service credentials are committed.

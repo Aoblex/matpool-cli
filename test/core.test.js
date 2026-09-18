@@ -258,17 +258,17 @@ test('release/stop: invalid IDs never reach API', async () => {
 
 test('stop: failed snapshot never releases node', async (t) => {
   loggedIn();
-  respond(t, [{ userNode }, { code: 9, msg: 'snapshot failed' }]);
+  respond(t, [{ userNode }, { userNodes: [userNode] }, { code: 9, msg: 'snapshot failed' }]);
   await assert.rejects(commands.stop('12', { yes: true }), /snapshot failed/);
-  assert.deepEqual(calls.map((call) => call.method), ['GET', 'POST']);
-  assert.equal(calls[1].url.pathname, '/api/node/quick_save');
+  assert.deepEqual(calls.map((call) => call.method), ['GET', 'GET', 'POST']);
+  assert.equal(calls[2].url.pathname, '/api/node/quick_save');
 });
 
 test('stop: unsupported snapshots fail without any mutation', async (t) => {
   loggedIn();
-  respond(t, [{ userNode: { ...userNode, supportQuickSave: false } }]);
+  respond(t, [{ userNode }, { userNodes: [{ ...userNode, supportQuickSave: false }] }]);
   await assert.rejects(commands.stop('12', { yes: true }), /does not support/);
-  assert.deepEqual(calls.map((call) => call.method), ['GET']);
+  assert.deepEqual(calls.map((call) => call.method), ['GET', 'GET']);
 });
 
 test('stop: missing request identity prevents any mutation', async (t) => {
@@ -288,12 +288,31 @@ test('release: uses the numeric instance ID expected by the web client', async (
 
 test('stop: server coordinates saving and stopping; CLI never sends DELETE', async (t) => {
   loggedIn();
-  respond(t, [{ userNode }, { code: 0 }]);
+  respond(t, [{ userNode }, { userNodes: [userNode] }, { code: 0 }]);
   await commands.stop('12', { yes: true });
-  assert.deepEqual(calls.map((call) => call.method), ['GET', 'POST']);
-  assert.deepEqual(JSON.parse(calls[1].body), { request_id: userNode.displayID, cancel_node: true });
+  assert.deepEqual(calls.map((call) => call.method), ['GET', 'GET', 'POST']);
+  assert.deepEqual(JSON.parse(calls[2].body), { request_id: userNode.displayID, cancel_node: true });
   assert.match(errors.join('\n'), /Completion is pending/);
   assert.doesNotMatch(errors.join('\n'), /released/);
+});
+
+test('stop: live API regression - list capability overrides false in detail', async (t) => {
+  loggedIn();
+  respond(t, [{ userNode: { ...userNode, supportQuickSave: false } }, { userNodes: [userNode] }, { code: 0 }]);
+  await commands.stop('12', { yes: true });
+  assert.equal(calls[1].url.pathname, '/api/nodes');
+  assert.equal(calls[1].url.searchParams.get('keywords'), userNode.displayID);
+  assert.equal(calls[1].url.searchParams.get('order'), 'false');
+  assert.deepEqual(JSON.parse(calls[2].body), { request_id: userNode.displayID, cancel_node: true });
+});
+
+test('stop: fuzzy search results cannot authorize stopping a different instance', async (t) => {
+  loggedIn();
+  for (const other of [{ ...userNode, node: { id: 99 } }, { ...userNode, displayID: 'other-request' }]) {
+    respond(t, [{ userNode }, { userNodes: [other] }]);
+    await assert.rejects(commands.stop('12', { yes: true }), /could not verify/);
+  }
+  assert.ok(calls.every((call) => call.method === 'GET'));
 });
 
 test('lists: --json preserves pagination metadata and all fields', async (t) => {

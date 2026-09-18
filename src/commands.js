@@ -173,7 +173,16 @@ export const commands = {
     const result = await spin('Fetching instance…', () => api.get('/node', { params: { id: nodeId } }));
     const instance = responseData(result).userNode;
     if (instance?.node?.id !== nodeId || !instance.displayID) throw new Error('instance response is missing the matching node or displayID');
-    if (instance.supportQuickSave !== true) throw new Error('this instance does not support temporary snapshots; no stop was requested');
+    // The detail endpoint can report false while the list (used by the web
+    // client's pause control) reports true. Resolve capability from the list,
+    // matching both identifiers so a fuzzy keyword result cannot select another node.
+    const listing = await api.get('/nodes', { params: {
+      page: 1, per_page: 20, order: false, keywords: instance.displayID,
+    } });
+    const listed = responseData(listing).userNodes?.find((item) =>
+      item.node?.id === nodeId && item.displayID === instance.displayID);
+    if (!listed) throw new Error('could not verify this instance in the node list; no stop was requested');
+    if (listed.supportQuickSave !== true) throw new Error('this instance does not support temporary snapshots; no stop was requested');
     // The backend coordinates snapshot completion and stopping. Never issue a
     // separate DELETE: an acknowledged snapshot request is not a finished backup.
     await spin('Requesting save and stop…', () => api.post('/node/quick_save', {

@@ -94,7 +94,7 @@ matpool stop <node-id>                # ask the server to save, then stop asynch
 
 **Release can permanently delete unsaved instance data.** Back up important files before using either command. Non-interactive mutation commands require `--yes`.
 
-`stop` first reads the instance to obtain its `displayID` and check `supportQuickSave`. It then follows the web client: `POST /node/quick_save` with `{request_id: displayID, cancel_node: true}`. **The server coordinates saving and stopping; the CLI never sends a separate DELETE.** The response is an acknowledgment, not proof that the instance has stopped or the snapshot is restorable.
+`stop` reads the instance to obtain its `displayID`, then verifies `supportQuickSave` using the matching node-list entry (the detail endpoint can incorrectly return `false`). It then follows the web client: `POST /node/quick_save` with `{request_id: displayID, cancel_node: true}`. **The server coordinates saving and stopping; the CLI never sends a separate DELETE.** The response is an acknowledgment, not proof that the instance has stopped or the snapshot is restorable.
 
 The web console describes nominal 24-hour snapshot retention and warns that a failed save can leave the instance running and billing. Verify completion in the web console before considering the operation finished. Back up important files separately. Resume from snapshots in the web console; this CLI does not implement restoration.
 
