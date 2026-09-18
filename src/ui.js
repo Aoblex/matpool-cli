@@ -93,13 +93,6 @@ export function renderTable(rows) {
   console.error(pc.dim(`${rows.length} row(s); use --json for complete data`));
 }
 
-export function listResponse(data, asJson) {
-  if (asJson) { json(data); return; }
-  const rows = extractList(data);
-  if (rows === null) json(data);
-  else renderTable(rows);
-}
-
 export function detailResponse(data, asJson) {
   if (asJson || !data || typeof data !== 'object' || Array.isArray(data)) { json(data); return; }
   const entries = Object.entries(data);

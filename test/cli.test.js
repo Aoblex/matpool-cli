@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pkg from '../package.json' with { type: 'json' };
+import { machine } from './fixtures.js';
 
 const cli = fileURLToPath(new URL('../bin/matpool.js', import.meta.url));
 
@@ -19,7 +20,9 @@ async function fixture(t, handler) {
     requests.push(`${req.method} ${req.url}`);
     if (handler) return handler(req, res);
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ code: 0, data: { items: [{ id: 1 }], total: 42 } }));
+    res.end(JSON.stringify(req.url.startsWith('/api/machine?')
+      ? { code: 0, machine }
+      : { code: 0, data: { items: [{ id: 1 }], total: 42 } }));
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
@@ -57,6 +60,35 @@ test('CLI: help and version work without API requests', async (t) => {
   const version = await run(['--version']);
   assert.equal(version.stdout.trim(), pkg.version);
   assert.deepEqual(requests, []);
+});
+
+test('CLI: login and account reads support the current web API envelopes end to end', async (t) => {
+  const { run, requests } = await fixture(t, (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    if (req.url === '/api/login') {
+      assert.equal(req.headers.authorization, undefined);
+      res.end(JSON.stringify({ code: 0, token: 'new-token' }));
+    } else if (req.url === '/api/user') {
+      assert.equal(req.headers.authorization, 'Bearer new-token');
+      res.end(JSON.stringify({ code: 0, user: { id: 456, name: 'user' }, services: {} }));
+    } else if (req.url === '/api/user/account') {
+      assert.equal(req.headers['x-matpool-user-id'], '456');
+      res.end(JSON.stringify({ code: 0, account: { balance: 100 }, couponAmountYuan: 5 }));
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  const login = await run(['login', '--name', 'user'], { MATPOOL_PASSWORD: 'fake-test-password' });
+  assert.equal(login.code, 0, login.stderr);
+  assert.match(login.stderr, /uid=456/);
+  const whoami = await run(['whoami', '--json']);
+  assert.equal(whoami.code, 0, whoami.stderr);
+  assert.equal(JSON.parse(whoami.stdout).user.id, 456);
+  const balance = await run(['balance', '--json']);
+  assert.equal(balance.code, 0, balance.stderr);
+  assert.equal(JSON.parse(balance.stdout).account.balance, 100);
+  assert.deepEqual(requests, ['POST /api/login', 'GET /api/user', 'GET /api/user', 'GET /api/user/account']);
 });
 
 test('CLI: piped JSON is parseable and preserves metadata', async (t) => {
